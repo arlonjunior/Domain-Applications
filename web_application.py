@@ -12,7 +12,7 @@ import calendar
 # ---------------------------
 @st.cache_data
 def load_data():
-    df = pd.read_excel('C:/Users/arlon/Downloads/OnlineRetail.xlsx')
+    df = pd.read_excel("OnlineRetail.xlsx")
     df = df[~df["InvoiceNo"].astype(str).str.startswith("C")]
     df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
     df["TotalPrice"] = df["Quantity"] * df["UnitPrice"]
