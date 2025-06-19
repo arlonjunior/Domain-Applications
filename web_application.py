@@ -156,7 +156,7 @@ elif aggregation == "Sales per Year":
 
 elif aggregation == "Sales per Customer":
     sales_data = df_filtered.groupby("CustomerID", as_index=False)["TotalPrice"].sum().sort_values(by="TotalPrice", ascending=False)
-    fig = px.bar(sales_data.head(20), x="CustomerID", y="TotalPrice", title="Top 20 Customers by Sales", labels={"TotalPrice": "Sales (£)"})
+    fig = px.line(sales_data.head(20), x="CustomerID", y="TotalPrice", title="Top 20 Customers by Sales", labels={"TotalPrice": "Sales (£)"})
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
 
