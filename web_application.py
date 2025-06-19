@@ -158,7 +158,7 @@ elif aggregation == "Sales per Customer":
     sales_data = df_filtered.groupby("CustomerID", as_index=False)["TotalPrice"].sum().sort_values(by="TotalPrice", ascending=False)
     fig = px.treemap(sales_data.head(20), path=["CustomerID"], values="TotalPrice",
                      title="Top 20 Customers by Sales",
-                     color="TotalPrice",
+                     color="Total Price",
                      color_continuous_scale="Blues")
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
