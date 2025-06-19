@@ -155,13 +155,11 @@ elif aggregation == "Sales per Year":
     st.dataframe(sales_data)
 
 elif aggregation == "Sales per Customer":
-    df_filtered["Month"] = df_filtered["InvoiceDate"].dt.to_period("M").astype(str)
-    monthly_sales = df_filtered.groupby(["CustomerID", "Month"])["TotalPrice"].sum().reset_index()
-
-    fig = px.scatter(monthly_sales, x="Month", y="CustomerID", size="TotalPrice",
+    sales_data = df_filtered.groupby("CustomerID", as_index=False)["TotalPrice"].sum().sort_values(by="TotalPrice", ascending=False)
+    fig = px.treemap(sales_data.head(20), path=["CustomerID"], values="TotalPrice",
+                     title="Top 20 Customers by Sales",
                      color="TotalPrice",
-                     title="Customer Purchases Over 13 Months",
-                     labels={"TotalPrice": "Sales (£)"})
+                     color_continuous_scale="Blues")
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
 
