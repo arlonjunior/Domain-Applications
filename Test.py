@@ -4,71 +4,88 @@ import plotly.express as px
 import numpy as np
 import re
 from datetime import datetime, timedelta
-
-# For handling month names
 import calendar
 
 
-# ============================================
-# 1. DATA LOADING & PREPROCESSING
-# ============================================
-
+# ---------------------------
+# Load and preprocess data
+# ---------------------------
 @st.cache_data
 def load_data():
-    # Load the dataset. Make sure 'OnlineRetail.xlsx' is in the same folder.
-    df = pd.read_excel('C:/Users/arlon/Downloads/OnlineRetail.xlsx')
-
-    # Remove cancelled orders (InvoiceNo that starts with "C")
+    df = pd.read_excel("OnlineRetail.xlsx")
     df = df[~df["InvoiceNo"].astype(str).str.startswith("C")]
-
-    # Convert InvoiceDate to datetime
     df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
-
-    # Calculate TotalPrice for each transaction
     df["TotalPrice"] = df["Quantity"] * df["UnitPrice"]
-
-    # Drop rows missing CustomerID (for customer-based aggregations)
     df = df.dropna(subset=["CustomerID"])
-
     return df
 
 
 df = load_data()
 
 
-# ============================================
-# 2. HELPER FUNCTIONS
-# ============================================
-
-def parse_month_input(month_input):
-    """
-    Convert an input (number string or month name) into a month number (1-12).
-    Returns None if input is empty or invalid.
-    """
-    if not month_input:
-        return None
-    month_input = month_input.strip().lower()
-    if month_input.isdigit():
-        month_num = int(month_input)
-        if 1 <= month_num <= 12:
-            return month_num
-    else:
-        # Check if input matches any month name or abbreviation
-        for i in range(1, 13):
-            month_name = calendar.month_name[i].lower()
-            month_abbr = calendar.month_abbr[i].lower()
-            if month_input in [month_name, month_abbr]:
-                return i
+# ---------------------------
+# Helper: Parse Month Names to Numbers (for multi-select)
+# ---------------------------
+def month_name_to_number(month_name):
+    # month_name_to_number converts a valid month name to its number (1-12)
+    month_name = month_name.strip().lower()
+    for i in range(1, 13):
+        if month_name == calendar.month_name[i].lower() or month_name == calendar.month_abbr[i].lower():
+            return i
     return None
 
 
-# ============================================
-# 3. USER INTERFACE: SELECT AGGREGATION FUNCTIONALITY
-# ============================================
+# ---------------------------
+# Helper: Advanced filter for product description (supports AND, OR, NOT)
+# ---------------------------
+def filter_descriptions(df, query):
+    """Filter the dataframe's 'Description' column using the query string with simple boolean operators."""
+    # Convert query to uppercase for consistency
+    query = query.upper()
 
-st.title("Online Retail Sales Aggregator")
+    # Split the query into tokens based on operators. This simple approach assumes users
+    # separate words and operators with spaces.
+    tokens = re.split(r'\s+(AND|OR|NOT)\s+', query)
+    tokens = [token.strip() for token in tokens if token.strip()]
 
-st.markdown("This web app retrieves sales aggregation based on your choice:")
+    # If there are no operators, use simple search
+    if len(tokens) == 1:
+        return df[df['Description'].str.upper().str.contains(tokens[0], na=False)]
+
+    # If the query contains 'AND', require all terms to appear.
+    if "AND" in tokens:
+        keywords = [token for token in tokens if token not in ["AND", "OR", "NOT"]]
+        mask = np.ones(len(df), dtype=bool)
+        for kw in keywords:
+            mask = mask & df['Description'].str.upper().str.contains(kw, na=False)
+        return df[mask]
+
+    # If the query contains 'OR', return rows that contain at least one keyword.
+    if "OR" in tokens:
+        keywords = [token for token in tokens if token not in ["AND", "OR", "NOT"]]
+        mask = np.zeros(len(df), dtype=bool)
+        for kw in keywords:
+            mask = mask | df['Description'].str.upper().str.contains(kw, na=False)
+        return df[mask]
+
+    # If the query contains 'NOT', assume the format: <include keywords> NOT <exclude keywords>
+    if "NOT" in tokens:
+        # For simplicity, split into two parts based on 'NOT'
+        parts = query.split("NOT")
+        include_part = parts[0].strip()
+        exclude_part = parts[1].strip() if len(parts) > 1 else ""
+        mask_include = df['Description'].str.upper().str.contains(include_part, na=False)
+        mask_exclude = ~df['Description'].str.upper().str.contains(exclude_part, na=False)
+        return df[mask_include & mask_exclude]
+
+    # Fallback: return the dataframe unfiltered if no operator is handled
+    return df
+
+
+# ---------------------------
+# Streamlit UI
+# ---------------------------
+st.title("Dashboard: Online Retail Sales")
 
 agg_options = [
     "Sales per Day",
@@ -80,30 +97,33 @@ agg_options = [
 ]
 aggregation = st.selectbox("Select Aggregation Type", agg_options)
 
-# If "Sales per Month", allow an optional filter for a specific month.
+# ---------------------------
+# For Sales per Month: use a multiselect widget for months
+# ---------------------------
 if aggregation == "Sales per Month":
-    month_input = st.text_input(
-        "Optional: Enter a month (number e.g., 3 or name e.g., March) to filter. If left blank, all months will be shown.")
-    filter_month = parse_month_input(month_input)
-else:
-    filter_month = None
+    available_months = list(calendar.month_name[1:])  # Skip indexing 0, which is empty.
+    selected_months = st.multiselect("Select one or more months", options=available_months)
+    # Convert selected month names to numbers
+    selected_month_numbers = [month_name_to_number(m) for m in selected_months if month_name_to_number(m) is not None]
 
-# For product aggregation, input a keyword
+else:
+    selected_month_numbers = None
+    selected_years = None
+
+# ---------------------------
+# For Sales per Product: allow complex keyword query
+# ---------------------------
 if aggregation == "Sales per Product/Description Keyword":
-    prod_keyword = st.text_input("Enter product description keyword (case insensitive) to filter products.", "")
+    prod_query = st.text_input("Enter product description query (use AND, OR, NOT for combinations)", "")
 else:
-    prod_keyword = ""
+    prod_query = ""
 
-# ============================================
-# 4. AGGREGATION & VISUALIZATION
-# ============================================
-
-# Make a copy of the dataframe for filtering if needed.
+# ---------------------------
+# Filtering and Aggregation Logic
+# ---------------------------
 df_filtered = df.copy()
 
-# Depending on the aggregation type, process and display the results.
 if aggregation == "Sales per Day":
-    # Group by the date (day resolution)
     df_filtered["Day"] = df_filtered["InvoiceDate"].dt.date
     sales_data = df_filtered.groupby("Day", as_index=False)["TotalPrice"].sum()
     fig = px.line(sales_data, x="Day", y="TotalPrice", title="Daily Sales",
@@ -112,24 +132,18 @@ if aggregation == "Sales per Day":
     st.dataframe(sales_data)
 
 elif aggregation == "Sales per Month":
-    # Create "Month" and "Year" columns based on InvoiceDate
+    # Create Month & Year columns
     df_filtered["Month"] = df_filtered["InvoiceDate"].dt.month
     df_filtered["Year"] = df_filtered["InvoiceDate"].dt.year
-
-    # If the user provided a specific month filter, apply it.
-    if filter_month:
-        df_filtered = df_filtered[df_filtered["Month"] == filter_month]
-        st.info(f"Filtering for Month: {calendar.month_name[filter_month]}")
-
-    # Group by Year and Month to aggregate sales
+    # If user selected specific months, filter by those
+    if selected_month_numbers:
+        df_filtered = df_filtered[df_filtered["Month"].isin(selected_month_numbers)]
+        st.info(f"Filtering for months: {', '.join(selected_months)}")
+    # Group by Year and Month (to account for multiple years)
     sales_data = df_filtered.groupby(["Year", "Month"], as_index=False)["TotalPrice"].sum()
-
-    # Create a human-friendly period label, e.g., "March 2011"
-    # sales_data["Period"] = sales_data.apply(lambda row:
-    # f"{calendar.month_name[int(row['Month'])]} {row['Year']}", axis=1)
-    sales_data["Period"] = sales_data.apply(lambda row: f"{calendar.month_name[int(row['Month'])]} - {int(row['Year'])}", axis=1)
-
-    # Display the results using a bar chart and dataframe
+    # Create a period label in the format "Month - Year" (e.g., "December - 2010")
+    sales_data["Period"] = sales_data.apply(
+        lambda row: f"{calendar.month_name[int(row['Month'])]} - {int(row['Year'])}", axis=1)
     fig = px.bar(sales_data, x="Period", y="TotalPrice", title="Monthly Sales", labels={"TotalPrice": "Sales (£)"})
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
@@ -142,11 +156,12 @@ elif aggregation == "Sales per Year":
     st.dataframe(sales_data)
 
 elif aggregation == "Sales per Customer":
-    # Group by CustomerID
     sales_data = df_filtered.groupby("CustomerID", as_index=False)["TotalPrice"].sum().sort_values(by="TotalPrice",
                                                                                                    ascending=False)
-    fig = px.bar(sales_data.head(20), x="CustomerID", y="TotalPrice", title="Top 20 Customers by Sales",
-                 labels={"TotalPrice": "Sales (£)"})
+    fig = px.treemap(sales_data.head(20), path=["CustomerID"], values="TotalPrice",
+                     title="Top 20 Customers by Sales",
+                     color="TotalPrice",
+                     color_continuous_scale="Blues")
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
 
@@ -159,13 +174,17 @@ elif aggregation == "Sales per Country":
     st.dataframe(sales_data)
 
 elif aggregation == "Sales per Product/Description Keyword":
-    # Filter products based on keyword in 'Description' (case-insensitive)
-    if prod_keyword:
-        df_filtered = df_filtered[df_filtered["Description"].str.contains(prod_keyword, case=False, na=False)]
+    # If a product query is provided, apply our advanced filtering
+    if prod_query:
+        df_filtered = filter_descriptions(df_filtered, prod_query)
+        st.info(f"Filtering descriptions with query: {prod_query}")
     sales_data = df_filtered.groupby("Description", as_index=False)["TotalPrice"].sum().sort_values(by="TotalPrice",
                                                                                                     ascending=False)
-    fig = px.bar(sales_data.head(20), x="TotalPrice", y="Description", orientation="h",
-                 title=f"Top 20 Products by Sales{' matching "' + prod_keyword + '"' if prod_keyword else ''}",
+    fig = px.bar(sales_data.head(20),
+                 x="TotalPrice",
+                 y="Description",
+                 orientation="h",
+                 title=f"Top 20 Products by Sales{' matching: ' + prod_query if prod_query else ''}",
                  labels={"TotalPrice": "Sales (£)", "Description": "Product Description"})
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
@@ -178,4 +197,3 @@ st.markdown(
     "This app provides various functionalities to aggregate online retail sales by date (day/month/year), customer, "
     "country, and product keywords. Adjust inputs and filters in the sidebar and main panel to explore the data "
     "further.")
-

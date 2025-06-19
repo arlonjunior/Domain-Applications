@@ -100,13 +100,24 @@ aggregation = st.selectbox("Select Aggregation Type", agg_options)
 # ---------------------------
 # For Sales per Month: use a multiselect widget for months
 # ---------------------------
+df_filtered = df.copy()
+
 if aggregation == "Sales per Month":
+
+    # Select month
     available_months = list(calendar.month_name[1:])  # Skip indexing 0, which is empty.
     selected_months = st.multiselect("Select one or more months", options=available_months)
     # Convert selected month names to numbers
     selected_month_numbers = [month_name_to_number(m) for m in selected_months if month_name_to_number(m) is not None]
+
+    # Select year
+    df_filtered["InvoiceDate"] = pd.to_datetime(df_filtered["InvoiceDate"], errors='coerce')
+    available_years = sorted(df_filtered["InvoiceDate"].dt.year.dropna().unique().tolist())
+    selected_years = st.multiselect("Select one or more years", options=available_years)
+
 else:
     selected_month_numbers = None
+    selected_years = None
 
 # ---------------------------
 # For Sales per Product: allow complex keyword query
@@ -120,7 +131,7 @@ else:
 # ---------------------------
 # Filtering and Aggregation Logic
 # ---------------------------
-df_filtered = df.copy()
+# df_filtered = df.copy()
 
 if aggregation == "Sales per Day":
     df_filtered["Day"] = df_filtered["InvoiceDate"].dt.date
@@ -131,19 +142,28 @@ if aggregation == "Sales per Day":
     st.dataframe(sales_data)
 
 elif aggregation == "Sales per Month":
-    # Create Month & Year columns
+    # Extract Month & Year
     df_filtered["Month"] = df_filtered["InvoiceDate"].dt.month
     df_filtered["Year"] = df_filtered["InvoiceDate"].dt.year
-    # If user selected specific months, filter by those
+
+    # Apply filters based on selected months/years
     if selected_month_numbers:
         df_filtered = df_filtered[df_filtered["Month"].isin(selected_month_numbers)]
         st.info(f"Filtering for months: {', '.join(selected_months)}")
-    # Group by Year and Month (to account for multiple years)
+
+    if selected_years:
+        df_filtered = df_filtered[df_filtered["Year"].isin(selected_years)]
+        st.info(f"Filtering for years: {', '.join(map(str, selected_years))}")
+
+    # Group by Year and Month
     sales_data = df_filtered.groupby(["Year", "Month"], as_index=False)["TotalPrice"].sum()
-    # Create a period label in the format "Month - Year" (e.g., "December - 2010")
+
+    # Create readable label
     sales_data["Period"] = sales_data.apply(
         lambda row: f"{calendar.month_name[int(row['Month'])]} - {int(row['Year'])}", axis=1)
-    fig = px.bar(sales_data, x="Period", y="TotalPrice", title="Monthly Sales", labels={"TotalPrice": "Sales (£)"})
+
+    fig = px.bar(sales_data, x="Period", y="TotalPrice",
+                 title="Monthly Sales", labels={"TotalPrice": "Sales (£)"})
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(sales_data)
 
