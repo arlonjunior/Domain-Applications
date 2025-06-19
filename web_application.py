@@ -102,7 +102,7 @@ aggregation = st.selectbox("Select Aggregation Type", agg_options)
 # ---------------------------
 if aggregation == "Sales per Month":
     available_months = list(calendar.month_name[1:])  # Skip indexing 0, which is empty.
-    selected_months = st.multiselect("Select one or more months", options=available_months, default=available_months)
+    selected_months = st.multiselect("Select one or more months", options=available_months)
     # Convert selected month names to numbers
     selected_month_numbers = [month_name_to_number(m) for m in selected_months if month_name_to_number(m) is not None]
 else:
@@ -115,6 +115,7 @@ if aggregation == "Sales per Product/Description Keyword":
     prod_query = st.text_input("Enter product description query (use AND, OR, NOT for combinations)", "")
 else:
     prod_query = ""
+
 
 # ---------------------------
 # Filtering and Aggregation Logic
